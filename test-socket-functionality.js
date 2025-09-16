@@ -4,7 +4,7 @@ const io = require("socket.io-client");
 console.log("🧪 Testing Complete Socket Functionality...\n");
 
 // Test Configuration
-const BACKEND_URL = "http://localhost:5000";
+const BACKEND_URL = "http://localhost:3000";
 const TEST_TOKENS = {
   user1:
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiI2NzhmYjQ4YzQ4YzQ4YzQ4YzQ4YzQ4YzQiLCJpYXQiOjE3MzQ5NjQ4MDAsImV4cCI6MTczNDk2ODQwMH0.test1",
