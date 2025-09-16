@@ -42,6 +42,7 @@ app.use(
     origin: [
       "http://localhost:3000",
       "http://localhost:5173",
+      "https://chat-app-new-frontend.vercel.app",
       process.env.FRONTEND_URL,
     ].filter(Boolean),
     credentials: true,
