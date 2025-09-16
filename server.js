@@ -22,7 +22,13 @@ const io = new Server(server, {
     origin: [
       "http://localhost:3000",
       "http://localhost:5173",
+      "https://chat-app-new-frontend.vercel.app",
       process.env.FRONTEND_URL,
+      // Mobile app origins
+      "capacitor://localhost",
+      "ionic://localhost",
+      "http://localhost",
+      "https://localhost",
     ].filter(Boolean),
     methods: ["GET", "POST"],
     credentials: true,
@@ -44,13 +50,46 @@ app.use(
       "http://localhost:5173",
       "https://chat-app-new-frontend.vercel.app",
       process.env.FRONTEND_URL,
+      // Mobile app origins
+      "capacitor://localhost",
+      "ionic://localhost",
+      "http://localhost",
+      "https://localhost",
     ].filter(Boolean),
     credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: [
+      "Origin",
+      "X-Requested-With",
+      "Content-Type",
+      "Accept",
+      "Authorization",
+      "Cache-Control",
+      "X-Access-Token",
+    ],
   })
 );
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Additional CORS headers for preflight requests
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
+  res.header("Access-Control-Allow-Credentials", "true");
+  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  res.header(
+    "Access-Control-Allow-Headers",
+    "Origin, X-Requested-With, Content-Type, Accept, Authorization, Cache-Control, X-Access-Token"
+  );
+
+  // Handle preflight requests
+  if (req.method === "OPTIONS") {
+    res.status(200).end();
+    return;
+  }
+  next();
+});
 
 // Serve static files from uploads directory
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
@@ -77,6 +116,22 @@ app.get("/api/health", (req, res) => {
     message: "ChatApp Backend is running",
     timestamp: new Date().toISOString(),
   });
+});
+
+// CORS test endpoint
+app.get("/api/cors-test", (req, res) => {
+  res.json({
+    success: true,
+    message: "CORS is working correctly",
+    origin: req.headers.origin,
+    userAgent: req.headers["user-agent"],
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// Preflight test endpoint
+app.options("/api/cors-test", (req, res) => {
+  res.status(200).json({ message: "Preflight OK" });
 });
 
 // Error handling middleware
