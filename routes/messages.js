@@ -53,7 +53,7 @@ router.get("/chat/:userId", verifyToken, async (req, res) => {
     let messages = [];
 
     if (chatRoom) {
-      // Get messages from chat room
+      // Get messages from chat room (including deleted messages)
       messages = await Message.find({
         $or: [
           { sender: req.userId, receiver: otherUserId },
@@ -62,6 +62,8 @@ router.get("/chat/:userId", verifyToken, async (req, res) => {
       })
         .populate("sender", "name email avatar")
         .populate("receiver", "name email avatar")
+        .populate("reactions.user", "name avatar")
+        .populate("deletedBy", "name avatar")
         .sort({ timestamp: -1 })
         .limit(limit * 1)
         .skip((page - 1) * limit);
@@ -253,7 +255,14 @@ router.post("/send", verifyToken, async (req, res) => {
     }
 
     // Validate message type
-    const validMessageTypes = ["text", "image", "video", "file"];
+    const validMessageTypes = [
+      "text",
+      "image",
+      "video",
+      "file",
+      "system",
+      "deleted",
+    ];
     if (!validMessageTypes.includes(messageType)) {
       return res.status(400).json({
         success: false,
@@ -316,6 +325,7 @@ router.delete("/message/:messageId", verifyToken, async (req, res) => {
     const message = await Message.findOne({
       _id: messageId,
       sender: req.userId,
+      isDeleted: false, // Only allow deletion of non-deleted messages
     });
 
     if (!message) {
@@ -325,18 +335,160 @@ router.delete("/message/:messageId", verifyToken, async (req, res) => {
       });
     }
 
-    // For now, we'll just mark as deleted (soft delete)
-    // In a real app, you might want to actually delete or mark differently
+    // Mark message as deleted (soft delete)
+    message.isDeleted = true;
+    message.deletedAt = new Date();
+    message.deletedBy = req.userId;
     message.content = "This message was deleted";
     message.messageType = "deleted";
     await message.save();
 
+    // Populate sender info for socket emission
+    await message.populate("sender", "name email avatar");
+    if (message.receiver) {
+      await message.populate("receiver", "name email avatar");
+    }
+    if (message.group) {
+      await message.populate("group", "name");
+    }
+
     res.json({
       success: true,
       message: "Message deleted successfully",
+      data: {
+        messageId: message._id,
+        deletedMessage: message,
+      },
     });
   } catch (error) {
     console.error("Delete message error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+});
+
+// Add reaction to message
+router.post("/message/:messageId/reaction", verifyToken, async (req, res) => {
+  try {
+    const { messageId } = req.params;
+    const { reaction = "👍" } = req.body;
+
+    // Validate reaction (basic emoji validation)
+    const validReactions = ["👍", "❤️", "😂", "😮", "😢", "😡", "👎"];
+    if (!validReactions.includes(reaction)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid reaction",
+      });
+    }
+
+    const message = await Message.findOne({
+      _id: messageId,
+      isDeleted: false, // Don't allow reactions on deleted messages
+    });
+
+    if (!message) {
+      return res.status(404).json({
+        success: false,
+        message: "Message not found",
+      });
+    }
+
+    // Check if user already reacted to this message
+    const existingReactionIndex = message.reactions.findIndex(
+      (r) => r.user.toString() === req.userId
+    );
+
+    if (existingReactionIndex !== -1) {
+      // Update existing reaction
+      message.reactions[existingReactionIndex].reaction = reaction;
+      message.reactions[existingReactionIndex].timestamp = new Date();
+    } else {
+      // Add new reaction
+      message.reactions.push({
+        user: req.userId,
+        reaction: reaction,
+        timestamp: new Date(),
+      });
+    }
+
+    await message.save();
+
+    // Populate reaction user info
+    await message.populate("reactions.user", "name avatar");
+    await message.populate("sender", "name email avatar");
+    if (message.receiver) {
+      await message.populate("receiver", "name email avatar");
+    }
+    if (message.group) {
+      await message.populate("group", "name");
+    }
+
+    res.json({
+      success: true,
+      message: "Reaction added successfully",
+      data: {
+        messageId: message._id,
+        reactions: message.reactions,
+        updatedMessage: message,
+      },
+    });
+  } catch (error) {
+    console.error("Add reaction error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+});
+
+// Remove reaction from message
+router.delete("/message/:messageId/reaction", verifyToken, async (req, res) => {
+  try {
+    const { messageId } = req.params;
+
+    const message = await Message.findOne({
+      _id: messageId,
+      isDeleted: false, // Don't allow reaction removal on deleted messages
+    });
+
+    if (!message) {
+      return res.status(404).json({
+        success: false,
+        message: "Message not found",
+      });
+    }
+
+    // Remove user's reaction
+    message.reactions = message.reactions.filter(
+      (r) => r.user.toString() !== req.userId
+    );
+
+    await message.save();
+
+    // Populate reaction user info
+    await message.populate("reactions.user", "name avatar");
+    await message.populate("sender", "name email avatar");
+    if (message.receiver) {
+      await message.populate("receiver", "name email avatar");
+    }
+    if (message.group) {
+      await message.populate("group", "name");
+    }
+
+    res.json({
+      success: true,
+      message: "Reaction removed successfully",
+      data: {
+        messageId: message._id,
+        reactions: message.reactions,
+        updatedMessage: message,
+      },
+    });
+  } catch (error) {
+    console.error("Remove reaction error:", error);
     res.status(500).json({
       success: false,
       message: "Internal server error",

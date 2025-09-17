@@ -186,9 +186,11 @@ router.get("/:groupId/messages", verifyToken, async (req, res) => {
       });
     }
 
-    // Get messages
+    // Get messages (including deleted messages)
     const messages = await Message.find({ group: groupId })
       .populate("sender", "name email avatar")
+      .populate("reactions.user", "name avatar")
+      .populate("deletedBy", "name avatar")
       .sort({ timestamp: -1 })
       .limit(limit * 1)
       .skip((page - 1) * limit);

@@ -50,7 +50,7 @@ const messageSchema = new mongoose.Schema(
     ],
     messageType: {
       type: String,
-      enum: ["text", "image", "video", "file", "system"],
+      enum: ["text", "image", "video", "file", "system", "deleted"],
       default: "text",
     },
     // File attachment fields
@@ -84,6 +84,39 @@ const messageSchema = new mongoose.Schema(
     chatRoom: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "ChatRoom",
+      default: null,
+    },
+    // Message reactions (likes, emojis, etc.)
+    reactions: [
+      {
+        user: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "User",
+          required: true,
+        },
+        reaction: {
+          type: String,
+          required: true,
+          default: "👍", // Default like reaction
+        },
+        timestamp: {
+          type: Date,
+          default: Date.now,
+        },
+      },
+    ],
+    // Deletion status
+    isDeleted: {
+      type: Boolean,
+      default: false,
+    },
+    deletedAt: {
+      type: Date,
+      default: null,
+    },
+    deletedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
       default: null,
     },
   },

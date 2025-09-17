@@ -141,8 +141,9 @@ const initializeSocket = (io) => {
 
           await message.save();
 
-          // Populate sender info
+          // Populate sender info and reactions
           await message.populate("sender", "name email avatar");
+          await message.populate("reactions.user", "name avatar");
 
           // Update group's last message and activity
           group.lastMessage = message._id;
@@ -197,8 +198,9 @@ const initializeSocket = (io) => {
 
           await message.save();
 
-          // Populate sender info
+          // Populate sender info and reactions
           await message.populate("sender", "name email avatar");
+          await message.populate("reactions.user", "name avatar");
 
           // Check if receiver is currently viewing this chat
           const receiverSocket = activeUsers.get(receiverId);
@@ -708,6 +710,369 @@ const initializeSocket = (io) => {
         user: socket.user,
         reason: reason,
       });
+    });
+
+    // Handle message deletion
+    socket.on("delete-message", async (data) => {
+      try {
+        const { messageId } = data;
+
+        console.log(`🗑️ Delete message request from ${socket.user.name}:`, {
+          messageId,
+          userId: socket.userId,
+          userName: socket.user.name,
+          userIdType: typeof socket.userId,
+          messageIdType: typeof messageId,
+        });
+
+        if (!messageId) {
+          console.log("❌ No message ID provided");
+          socket.emit("message-error", { error: "Message ID is required" });
+          return;
+        }
+
+        if (!socket.userId) {
+          console.log("❌ No user ID available");
+          socket.emit("message-error", { error: "User not authenticated" });
+          return;
+        }
+
+        // First, let's try to find the message without any restrictions to debug
+        let messageExists;
+        try {
+          messageExists = await Message.findById(messageId);
+          console.log(`🔍 Message exists check:`, {
+            messageId,
+            exists: !!messageExists,
+            sender: messageExists?.sender?.toString(),
+            currentUser: socket.userId,
+            isDeleted: messageExists?.isDeleted,
+          });
+        } catch (findError) {
+          console.log("❌ Error finding message by ID:", findError);
+          socket.emit("message-error", {
+            error: "Invalid message ID",
+          });
+          return;
+        }
+
+        // Try to find message with proper ObjectId handling
+        let message;
+        try {
+          message = await Message.findOne({
+            _id: messageId,
+            sender: socket.userId,
+            isDeleted: false,
+          });
+        } catch (dbError) {
+          console.log("❌ Database query error:", dbError);
+          socket.emit("message-error", {
+            error: "Invalid message ID format",
+          });
+          return;
+        }
+
+        if (!message) {
+          // More detailed debugging for authorization issues
+          if (messageExists) {
+            const messageSenderStr = messageExists.sender?.toString();
+            const currentUserStr = socket.userId?.toString();
+            console.log(`❌ Authorization failed - detailed comparison:`, {
+              messageId,
+              messageExists: true,
+              messageSender: messageSenderStr,
+              currentUser: currentUserStr,
+              sendersMatch: messageSenderStr === currentUserStr,
+              messageDeleted: messageExists.isDeleted,
+              messageContent: messageExists.content?.substring(0, 50),
+              messageType: messageExists.messageType,
+            });
+
+            // Try alternative approach - manual authorization check
+            if (
+              messageSenderStr === currentUserStr &&
+              !messageExists.isDeleted
+            ) {
+              console.log(
+                "🔄 Manual authorization passed, using messageExists as message"
+              );
+              message = messageExists;
+            }
+          }
+
+          if (!message) {
+            console.log(`❌ Final check - Message not found or unauthorized:`, {
+              messageId,
+              requestedBy: socket.userId,
+              messageExists: !!messageExists,
+              messageSender: messageExists?.sender?.toString(),
+              messageDeleted: messageExists?.isDeleted,
+            });
+            socket.emit("message-error", {
+              error: "Message not found or unauthorized",
+            });
+            return;
+          }
+        }
+
+        // Mark message as deleted
+        message.isDeleted = true;
+        message.deletedAt = new Date();
+        message.deletedBy = socket.userId;
+        message.content = "This message was deleted";
+        message.messageType = "deleted";
+        await message.save();
+
+        // Populate message info
+        await message.populate("sender", "name email avatar");
+        await message.populate("reactions.user", "name avatar");
+        await message.populate("deletedBy", "name avatar");
+        if (message.receiver) {
+          await message.populate("receiver", "name email avatar");
+        }
+        if (message.group) {
+          await message.populate("group", "name");
+        }
+
+        // Emit deletion confirmation to sender
+        socket.emit("message-deleted", {
+          messageId: message._id,
+          deletedMessage: message,
+        });
+
+        // Handle group message deletion
+        if (message.group) {
+          const group = await Group.findById(message.group._id);
+          if (group) {
+            // Emit to all group members
+            group.members.forEach((memberId) => {
+              const memberSocket = activeUsers.get(memberId.toString());
+              if (memberSocket && memberId.toString() !== socket.userId) {
+                io.to(memberSocket.socketId).emit("message-deleted", {
+                  messageId: message._id,
+                  deletedMessage: message,
+                  groupId: group._id,
+                });
+              }
+            });
+          }
+        } else if (message.receiver) {
+          // Emit to receiver for private message
+          const receiverSocket = activeUsers.get(
+            message.receiver._id.toString()
+          );
+          if (receiverSocket) {
+            io.to(receiverSocket.socketId).emit("message-deleted", {
+              messageId: message._id,
+              deletedMessage: message,
+            });
+          }
+        }
+
+        console.log(
+          `🗑️ Message deleted successfully by ${socket.user.name}: ${messageId}`
+        );
+      } catch (error) {
+        console.error("Delete message error:", error);
+        socket.emit("message-error", {
+          error: "Failed to delete message",
+          details: error.message,
+        });
+      }
+    });
+
+    // Handle message reactions
+    socket.on("add-reaction", async (data) => {
+      try {
+        const { messageId, reaction = "👍" } = data;
+
+        if (!messageId) {
+          socket.emit("message-error", { error: "Message ID is required" });
+          return;
+        }
+
+        // Validate reaction
+        const validReactions = ["👍", "❤️", "😂", "😮", "😢", "😡", "👎"];
+        if (!validReactions.includes(reaction)) {
+          socket.emit("message-error", { error: "Invalid reaction" });
+          return;
+        }
+
+        const message = await Message.findOne({
+          _id: messageId,
+          isDeleted: false,
+        });
+
+        if (!message) {
+          socket.emit("message-error", { error: "Message not found" });
+          return;
+        }
+
+        // Check if user already reacted
+        const existingReactionIndex = message.reactions.findIndex(
+          (r) => r.user.toString() === socket.userId
+        );
+
+        if (existingReactionIndex !== -1) {
+          // Update existing reaction
+          message.reactions[existingReactionIndex].reaction = reaction;
+          message.reactions[existingReactionIndex].timestamp = new Date();
+        } else {
+          // Add new reaction
+          message.reactions.push({
+            user: socket.userId,
+            reaction: reaction,
+            timestamp: new Date(),
+          });
+        }
+
+        await message.save();
+
+        // Populate reaction user info
+        await message.populate("reactions.user", "name avatar");
+        await message.populate("sender", "name email avatar");
+        if (message.receiver) {
+          await message.populate("receiver", "name email avatar");
+        }
+        if (message.group) {
+          await message.populate("group", "name");
+        }
+
+        // Emit reaction to sender (confirmation)
+        socket.emit("reaction-added", {
+          messageId: message._id,
+          reactions: message.reactions,
+          updatedMessage: message,
+        });
+
+        // Handle group message reactions
+        if (message.group) {
+          const group = await Group.findById(message.group._id);
+          if (group) {
+            // Emit to all group members except sender
+            group.members.forEach((memberId) => {
+              const memberSocket = activeUsers.get(memberId.toString());
+              if (memberSocket && memberId.toString() !== socket.userId) {
+                io.to(memberSocket.socketId).emit("reaction-added", {
+                  messageId: message._id,
+                  reactions: message.reactions,
+                  updatedMessage: message,
+                  groupId: group._id,
+                });
+              }
+            });
+          }
+        } else if (message.receiver) {
+          // Emit to receiver for private message
+          const receiverSocket = activeUsers.get(
+            message.receiver._id.toString()
+          );
+          if (receiverSocket) {
+            io.to(receiverSocket.socketId).emit("reaction-added", {
+              messageId: message._id,
+              reactions: message.reactions,
+              updatedMessage: message,
+            });
+          }
+        }
+
+        console.log(
+          `👍 Reaction ${reaction} added by ${socket.user.name} to message ${messageId}`
+        );
+      } catch (error) {
+        console.error("Add reaction error:", error);
+        socket.emit("message-error", {
+          error: "Failed to add reaction",
+          details: error.message,
+        });
+      }
+    });
+
+    // Handle removing message reactions
+    socket.on("remove-reaction", async (data) => {
+      try {
+        const { messageId } = data;
+
+        if (!messageId) {
+          socket.emit("message-error", { error: "Message ID is required" });
+          return;
+        }
+
+        const message = await Message.findOne({
+          _id: messageId,
+          isDeleted: false,
+        });
+
+        if (!message) {
+          socket.emit("message-error", { error: "Message not found" });
+          return;
+        }
+
+        // Remove user's reaction
+        message.reactions = message.reactions.filter(
+          (r) => r.user.toString() !== socket.userId
+        );
+
+        await message.save();
+
+        // Populate reaction user info
+        await message.populate("reactions.user", "name avatar");
+        await message.populate("sender", "name email avatar");
+        if (message.receiver) {
+          await message.populate("receiver", "name email avatar");
+        }
+        if (message.group) {
+          await message.populate("group", "name");
+        }
+
+        // Emit reaction removal to sender (confirmation)
+        socket.emit("reaction-removed", {
+          messageId: message._id,
+          reactions: message.reactions,
+          updatedMessage: message,
+        });
+
+        // Handle group message reaction removal
+        if (message.group) {
+          const group = await Group.findById(message.group._id);
+          if (group) {
+            // Emit to all group members except sender
+            group.members.forEach((memberId) => {
+              const memberSocket = activeUsers.get(memberId.toString());
+              if (memberSocket && memberId.toString() !== socket.userId) {
+                io.to(memberSocket.socketId).emit("reaction-removed", {
+                  messageId: message._id,
+                  reactions: message.reactions,
+                  updatedMessage: message,
+                  groupId: group._id,
+                });
+              }
+            });
+          }
+        } else if (message.receiver) {
+          // Emit to receiver for private message
+          const receiverSocket = activeUsers.get(
+            message.receiver._id.toString()
+          );
+          if (receiverSocket) {
+            io.to(receiverSocket.socketId).emit("reaction-removed", {
+              messageId: message._id,
+              reactions: message.reactions,
+              updatedMessage: message,
+            });
+          }
+        }
+
+        console.log(
+          `👍 Reaction removed by ${socket.user.name} from message ${messageId}`
+        );
+      } catch (error) {
+        console.error("Remove reaction error:", error);
+        socket.emit("message-error", {
+          error: "Failed to remove reaction",
+          details: error.message,
+        });
+      }
     });
 
     // Handle user viewing chat status
