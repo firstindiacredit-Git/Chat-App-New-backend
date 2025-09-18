@@ -202,7 +202,7 @@ router.post("/sync-web-contacts", verifyToken, async (req, res) => {
     const { phoneNumbers } = req.body;
     const currentUserId = req.user.userId;
 
-    console.log("📱 Web Contact Sync request:", {
+    console.log("📱 App Contact Sync request:", {
       userId: currentUserId,
       phoneCount: phoneNumbers?.length || 0,
     });
@@ -210,7 +210,7 @@ router.post("/sync-web-contacts", verifyToken, async (req, res) => {
     if (!phoneNumbers || !Array.isArray(phoneNumbers)) {
       return res.status(400).json({
         success: false,
-        message: "Phone numbers array is required for web sync",
+        message: "Phone numbers array is required for app sync",
       });
     }
 
@@ -231,7 +231,7 @@ router.post("/sync-web-contacts", verifyToken, async (req, res) => {
         data: {
           appUsers: [],
           totalContacts: 0,
-          method: "web",
+          method: "native",
         },
       });
     }
@@ -252,21 +252,21 @@ router.post("/sync-web-contacts", verifyToken, async (req, res) => {
       }
     );
 
-    console.log("📱 Web sync found app users:", appUsers.length);
+    console.log("📱 App sync found app users:", appUsers.length);
 
     res.json({
       success: true,
-      message: `Web contact sync completed`,
+      message: `App contact sync completed`,
       data: {
         appUsers: appUsers,
         totalContacts: phoneNumbers.length,
         foundCount: appUsers.length,
-        method: "web",
+        method: "native",
         syncTimestamp: new Date().toISOString(),
       },
     });
   } catch (error) {
-    console.error("Web contact sync error:", error);
+    console.error("App contact sync error:", error);
     res.status(500).json({
       success: false,
       message: "Internal server error",
