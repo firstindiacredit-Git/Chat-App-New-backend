@@ -12,6 +12,7 @@ const messageRoutes = require("./routes/messages");
 const groupRoutes = require("./routes/groups");
 const callRoutes = require("./routes/calls");
 const uploadRoutes = require("./routes/upload");
+const findFriendsRoutes = require("./routes/findFriends");
 const { router: storyRoutes, setSocketIO } = require("./routes/stories");
 const { initializeSocket } = require("./socket/socketServer");
 
@@ -107,6 +108,7 @@ app.use("/api/messages", messageRoutes);
 app.use("/api/groups", groupRoutes);
 app.use("/api/calls", callRoutes);
 app.use("/api/upload", uploadRoutes);
+app.use("/api/find-friends", findFriendsRoutes);
 app.use("/api/stories", storyRoutes);
 
 // Health check endpoint
