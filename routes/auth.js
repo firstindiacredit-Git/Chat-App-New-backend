@@ -386,6 +386,11 @@ router.post("/find-users-by-phones", async (req, res) => {
   try {
     const { phoneNumbers } = req.body;
 
+    console.log("📱 Contact sync request received:", {
+      phoneCount: phoneNumbers?.length,
+      samplePhones: phoneNumbers?.slice(0, 3),
+    });
+
     if (!phoneNumbers || !Array.isArray(phoneNumbers)) {
       return res.status(400).json({
         success: false,
@@ -393,10 +398,51 @@ router.post("/find-users-by-phones", async (req, res) => {
       });
     }
 
-    // Clean and validate phone numbers
-    const cleanedPhones = phoneNumbers
-      .map((phone) => phone.replace(/\D/g, "")) // Remove non-digits
-      .filter((phone) => phone.length >= 10 && phone.length <= 15); // Valid length
+    // Enhanced phone number cleaning and normalization
+    const processPhoneNumbers = (phones) => {
+      const processed = new Set(); // Use Set to avoid duplicates
+
+      phones.forEach((phone) => {
+        if (!phone) return;
+
+        // Remove all non-digits
+        let cleaned = phone.toString().replace(/\D/g, "");
+
+        // Skip if too short
+        if (cleaned.length < 10) return;
+
+        // Add various formats for better matching
+        if (cleaned.length === 10) {
+          // US format: 1234567890
+          processed.add(cleaned);
+        } else if (cleaned.length === 11 && cleaned.startsWith("1")) {
+          // US format with country code: 11234567890
+          processed.add(cleaned);
+          processed.add(cleaned.substring(1)); // Without country code
+        } else if (cleaned.length === 12 && cleaned.startsWith("91")) {
+          // Indian format: 919876543210
+          processed.add(cleaned);
+          processed.add(cleaned.substring(2)); // Without country code
+        } else if (cleaned.length >= 10) {
+          // Other formats
+          processed.add(cleaned);
+          // Also try last 10 digits
+          if (cleaned.length > 10) {
+            processed.add(cleaned.substring(cleaned.length - 10));
+          }
+        }
+      });
+
+      return Array.from(processed);
+    };
+
+    const cleanedPhones = processPhoneNumbers(phoneNumbers);
+
+    console.log("📱 Processed phone numbers:", {
+      original: phoneNumbers.length,
+      processed: cleanedPhones.length,
+      sampleProcessed: cleanedPhones.slice(0, 5),
+    });
 
     if (cleanedPhones.length === 0) {
       return res.json({
@@ -405,16 +451,14 @@ router.post("/find-users-by-phones", async (req, res) => {
         data: {
           foundUsers: [],
           totalFound: 0,
+          searchedPhones: 0,
         },
       });
     }
 
-    // Find users with matching phone numbers
-    const foundUsers = await User.find(
-      {
-        phone: { $in: cleanedPhones },
-        isEmailVerified: true,
-      },
+    // Get all users first to do flexible matching
+    const allUsers = await User.find(
+      { isEmailVerified: true },
       {
         name: 1,
         _id: 1,
@@ -422,19 +466,101 @@ router.post("/find-users-by-phones", async (req, res) => {
         phone: 1,
         bio: 1,
       }
-    ).sort({ name: 1 });
+    );
+
+    console.log("📱 Total verified users in database:", allUsers.length);
+
+    // Flexible phone matching
+    const matchedUsers = [];
+    const processedUserPhones = new Set();
+
+    allUsers.forEach((user) => {
+      if (!user.phone || processedUserPhones.has(user._id.toString())) return;
+
+      const userPhone = user.phone.replace(/\D/g, "");
+
+      // Check if user's phone matches any of the contact phones
+      const isMatch = cleanedPhones.some((contactPhone) => {
+        // Exact match
+        if (contactPhone === userPhone) return true;
+
+        // Last 10 digits match (for different country codes)
+        if (contactPhone.length >= 10 && userPhone.length >= 10) {
+          const contactLast10 = contactPhone.substring(
+            contactPhone.length - 10
+          );
+          const userLast10 = userPhone.substring(userPhone.length - 10);
+          if (contactLast10 === userLast10) return true;
+        }
+
+        // Handle country code variations
+        if (contactPhone.length === 10 && userPhone.length === 12) {
+          // Contact: 9876543210, User: 919876543210
+          if (userPhone.substring(2) === contactPhone) return true;
+        }
+        if (contactPhone.length === 12 && userPhone.length === 10) {
+          // Contact: 919876543210, User: 9876543210
+          if (contactPhone.substring(2) === userPhone) return true;
+        }
+
+        return false;
+      });
+
+      if (isMatch) {
+        matchedUsers.push(user);
+        processedUserPhones.add(user._id.toString());
+      }
+    });
+
+    console.log("📱 Found matching users:", {
+      count: matchedUsers.length,
+      users: matchedUsers.map((u) => ({ name: u.name, phone: u.phone })),
+    });
+
+    // Sort by name
+    matchedUsers.sort((a, b) => a.name.localeCompare(b.name));
 
     res.json({
       success: true,
-      message: "Users found successfully",
+      message: `Found ${matchedUsers.length} users from your contacts`,
       data: {
-        foundUsers,
-        totalFound: foundUsers.length,
+        foundUsers: matchedUsers,
+        totalFound: matchedUsers.length,
         searchedPhones: cleanedPhones.length,
+        totalContacts: phoneNumbers.length,
       },
     });
   } catch (error) {
     console.error("Find users by phones error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+});
+
+// Test endpoint to debug contact sync
+router.get("/test-contacts", async (req, res) => {
+  try {
+    const users = await User.find(
+      { isEmailVerified: true },
+      { name: 1, phone: 1, email: 1 }
+    ).limit(10);
+
+    const testPhones = ["1234567890", "9876543210", "919876543210"];
+
+    res.json({
+      success: true,
+      message: "Contact sync test data",
+      data: {
+        totalUsers: await User.countDocuments({ isEmailVerified: true }),
+        sampleUsers: users,
+        testPhones: testPhones,
+        timestamp: new Date().toISOString(),
+      },
+    });
+  } catch (error) {
+    console.error("Test contacts error:", error);
     res.status(500).json({
       success: false,
       message: "Internal server error",

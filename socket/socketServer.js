@@ -628,13 +628,78 @@ const initializeSocket = (io) => {
       }
     });
 
-    // Handle ICE candidate exchange
-    socket.on("ice-candidate", async (data) => {
+    // Handle WebRTC answer (separate from call answer)
+    socket.on("call-answer-webrtc", async (data) => {
       try {
-        const { callId, candidate, sdpMLineIndex, sdpMid } = data;
+        console.log("📞 Received call-answer-webrtc event:", data);
+        const { callId, answer } = data;
+
+        if (!callId || !answer) {
+          socket.emit("call-error", {
+            error: "Call ID and answer are required",
+          });
+          return;
+        }
 
         const call = await Call.findById(callId);
         if (!call) {
+          socket.emit("call-error", { error: "Call not found" });
+          return;
+        }
+
+        // Check if user is the receiver
+        if (call.receiver.toString() !== socket.userId) {
+          socket.emit("call-error", { error: "Not authorized to send answer" });
+          return;
+        }
+
+        // Update call with answer
+        call.answer = JSON.stringify(answer);
+        await call.save();
+
+        // Forward answer to caller
+        const callerSocket = activeUsers.get(call.caller.toString());
+        if (callerSocket) {
+          io.to(callerSocket.socketId).emit("call-answer-webrtc", {
+            callId: call._id,
+            answer: answer,
+            from: socket.user,
+          });
+          console.log(`📞 WebRTC answer forwarded to caller ${call.caller}`);
+        }
+
+        console.log(
+          `📞 WebRTC answer sent from ${socket.user.name} for call ${callId}`
+        );
+      } catch (error) {
+        console.error("WebRTC answer error:", error);
+        socket.emit("call-error", { error: "Failed to send answer" });
+      }
+    });
+
+    // Handle ICE candidate exchange
+    socket.on("ice-candidate", async (data) => {
+      try {
+        console.log("🧊 Received ICE candidate event:", data);
+        const { callId, candidate, sdpMLineIndex, sdpMid } = data;
+
+        if (!callId) {
+          console.log("❌ No call ID in ICE candidate");
+          socket.emit("call-error", {
+            error: "Call ID is required for ICE candidate",
+          });
+          return;
+        }
+
+        if (!candidate) {
+          console.log("❌ No candidate in ICE candidate");
+          socket.emit("call-error", { error: "ICE candidate is required" });
+          return;
+        }
+
+        const call = await Call.findById(callId);
+        if (!call) {
+          console.log(`❌ Call not found for ICE candidate: ${callId}`);
           socket.emit("call-error", { error: "Call not found" });
           return;
         }
@@ -644,26 +709,39 @@ const initializeSocket = (io) => {
           call.caller.toString() !== socket.userId &&
           call.receiver.toString() !== socket.userId
         ) {
+          console.log(
+            `❌ Unauthorized ICE candidate from ${socket.userId} for call ${callId}`
+          );
           socket.emit("call-error", {
             error: "Not authorized to send ICE candidate",
           });
           return;
         }
 
-        // Add ICE candidate to call record
-        call.iceCandidates.push({
-          candidate,
-          sdpMLineIndex,
-          sdpMid,
-        });
-        await call.save();
+        // Add ICE candidate to call record (optional - for debugging)
+        try {
+          call.iceCandidates.push({
+            candidate,
+            sdpMLineIndex,
+            sdpMid,
+          });
+          await call.save();
+          console.log(`✅ ICE candidate saved to database for call ${callId}`);
+        } catch (saveError) {
+          console.log(
+            `⚠️ Failed to save ICE candidate to database:`,
+            saveError
+          );
+          // Continue anyway - database save is not critical for WebRTC
+        }
 
-        // Forward ICE candidate to the other party
+        // Forward ICE candidate to the other party (this is the important part)
         const otherUserId =
           call.caller.toString() === socket.userId
             ? call.receiver.toString()
             : call.caller.toString();
         const otherUserSocket = activeUsers.get(otherUserId);
+
         if (otherUserSocket) {
           io.to(otherUserSocket.socketId).emit("ice-candidate", {
             callId: call._id,
@@ -672,14 +750,22 @@ const initializeSocket = (io) => {
             sdpMid,
             from: socket.user,
           });
+          console.log(`🧊 ICE candidate forwarded to ${otherUserId}`);
+        } else {
+          console.log(
+            `⚠️ Other user ${otherUserId} not online for ICE candidate`
+          );
         }
 
         console.log(
-          `🧊 ICE candidate sent from ${socket.user.name} for call ${callId}`
+          `🧊 ICE candidate processed from ${socket.user.name} for call ${callId}`
         );
       } catch (error) {
         console.error("ICE candidate error:", error);
-        socket.emit("call-error", { error: "Failed to send ICE candidate" });
+        socket.emit("call-error", {
+          error: "Failed to send ICE candidate",
+          details: error.message,
+        });
       }
     });
 
