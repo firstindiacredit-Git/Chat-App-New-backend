@@ -26,15 +26,17 @@ const verifyToken = (req, res, next) => {
   }
 };
 
-// Sync contacts and find friends
+// Sync contacts and find friends (Enhanced for web and native)
 router.post("/sync-contacts", verifyToken, async (req, res) => {
   try {
-    const { contacts } = req.body;
+    const { contacts, platform, method } = req.body;
     const currentUserId = req.user.userId;
 
     console.log("📱 Find Friends - Sync contacts request:", {
       userId: currentUserId,
       contactsCount: contacts?.length || 0,
+      platform: platform || "unknown",
+      method: method || "unknown",
     });
 
     if (!contacts || !Array.isArray(contacts)) {
@@ -187,6 +189,84 @@ router.post("/sync-contacts", verifyToken, async (req, res) => {
     });
   } catch (error) {
     console.error("Sync contacts error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+});
+
+// Web contact sync (for web platform when native not available)
+router.post("/sync-web-contacts", verifyToken, async (req, res) => {
+  try {
+    const { phoneNumbers } = req.body;
+    const currentUserId = req.user.userId;
+
+    console.log("📱 Web Contact Sync request:", {
+      userId: currentUserId,
+      phoneCount: phoneNumbers?.length || 0,
+    });
+
+    if (!phoneNumbers || !Array.isArray(phoneNumbers)) {
+      return res.status(400).json({
+        success: false,
+        message: "Phone numbers array is required for web sync",
+      });
+    }
+
+    // Process phone numbers for web sync
+    const cleanedPhones = phoneNumbers
+      .map((phone) => phone.replace(/\D/g, ""))
+      .filter((phone) => phone.length >= 10);
+
+    console.log("📱 Web sync processed phones:", {
+      original: phoneNumbers.length,
+      cleaned: cleanedPhones.length,
+    });
+
+    if (cleanedPhones.length === 0) {
+      return res.json({
+        success: true,
+        message: "No valid phone numbers provided",
+        data: {
+          appUsers: [],
+          totalContacts: 0,
+          method: "web",
+        },
+      });
+    }
+
+    // Find matching app users
+    const appUsers = await User.find(
+      {
+        phone: { $in: cleanedPhones },
+        isEmailVerified: true,
+        _id: { $ne: currentUserId },
+      },
+      {
+        name: 1,
+        _id: 1,
+        avatar: 1,
+        phone: 1,
+        bio: 1,
+      }
+    );
+
+    console.log("📱 Web sync found app users:", appUsers.length);
+
+    res.json({
+      success: true,
+      message: `Web contact sync completed`,
+      data: {
+        appUsers: appUsers,
+        totalContacts: phoneNumbers.length,
+        foundCount: appUsers.length,
+        method: "web",
+        syncTimestamp: new Date().toISOString(),
+      },
+    });
+  } catch (error) {
+    console.error("Web contact sync error:", error);
     res.status(500).json({
       success: false,
       message: "Internal server error",
