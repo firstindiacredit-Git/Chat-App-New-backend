@@ -189,7 +189,7 @@ const initializeSocket = (io) => {
           // Emit new-message to all group members
           console.log("📤 Emitting new-message to all group members");
           const offlineMembers = [];
-          
+
           group.members.forEach((memberId) => {
             const memberSocket = activeUsers.get(memberId.toString());
             if (memberSocket) {
@@ -206,29 +206,41 @@ const initializeSocket = (io) => {
 
           // Send push notifications to offline group members
           if (offlineMembers.length > 0) {
-            console.log(`📱 Sending push notifications to ${offlineMembers.length} offline group members`);
+            console.log(
+              `📱 Sending push notifications to ${offlineMembers.length} offline group members`
+            );
             try {
               const groupNotificationPayload = {
                 title: `${group.name}`,
-                body: `${socket.user.name}: ${message.content || 'New message'}`,
-                icon: '/vite.svg',
+                body: `${socket.user.name}: ${
+                  message.content || "New message"
+                }`,
+                icon: "/vite.svg",
                 tag: `group-${group._id}`,
                 data: {
-                  type: 'message',
+                  type: "message",
                   chatId: group._id.toString(),
                   groupId: group._id.toString(),
                   senderName: socket.user.name,
                   groupName: group.name,
-                  timestamp: Date.now()
-                }
+                  timestamp: Date.now(),
+                },
               };
 
               for (const memberId of offlineMembers) {
-                await notificationService.sendNotificationToUser(memberId, groupNotificationPayload);
+                await notificationService.sendNotificationToUser(
+                  memberId,
+                  groupNotificationPayload
+                );
               }
-              console.log(`📱 Push notifications sent to offline group members`);
+              console.log(
+                `📱 Push notifications sent to offline group members`
+              );
             } catch (error) {
-              console.error('📱 Failed to send group push notifications:', error);
+              console.error(
+                "📱 Failed to send group push notifications:",
+                error
+              );
             }
           }
 
@@ -350,19 +362,22 @@ const initializeSocket = (io) => {
               sender: socket.user,
             });
           } else {
-            console.log("📭 Receiver not online - sending push notification:", receiverId);
-            
+            console.log(
+              "📭 Receiver not online - sending push notification:",
+              receiverId
+            );
+
             // Send push notification to offline user
             try {
               await notificationService.sendMessageNotification(
                 receiverId,
                 socket.user.name,
-                message.content || 'New message',
+                message.content || "New message",
                 chatRoom._id.toString()
               );
               console.log(`📱 Push notification sent to ${receiver.name}`);
             } catch (error) {
-              console.error('📱 Failed to send push notification:', error);
+              console.error("📱 Failed to send push notification:", error);
             }
           }
 

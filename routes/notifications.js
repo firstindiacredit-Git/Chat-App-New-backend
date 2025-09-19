@@ -19,7 +19,7 @@ const verifyToken = async (req, res, next) => {
     const jwt = require("jsonwebtoken");
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const user = await User.findById(decoded.userId).select("-password");
-    
+
     if (!user) {
       return res.status(401).json({
         success: false,
@@ -194,7 +194,7 @@ router.get("/stats", verifyToken, async (req, res) => {
 router.get("/subscriptions", verifyToken, async (req, res) => {
   try {
     const user = await User.findById(req.userId).select("pushSubscriptions");
-    
+
     if (!user) {
       return res.status(404).json({
         success: false,
@@ -203,13 +203,13 @@ router.get("/subscriptions", verifyToken, async (req, res) => {
     }
 
     const subscriptions = user.pushSubscriptions || [];
-    
+
     res.json({
       success: true,
       data: {
-        subscriptions: subscriptions.map(sub => ({
+        subscriptions: subscriptions.map((sub) => ({
           endpoint: sub.endpoint,
-          createdAt: sub.createdAt
+          createdAt: sub.createdAt,
         })),
         totalSubscriptions: subscriptions.length,
       },

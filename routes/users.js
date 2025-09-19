@@ -181,17 +181,19 @@ router.post("/block", authenticateUser, async (req, res) => {
       try {
         await notificationService.sendSystemNotification(
           userId,
-          'User Blocked',
+          "User Blocked",
           `You have been blocked by ${currentUser.name}`,
-          'blocked',
+          "blocked",
           {
             blockedBy: currentUserId,
-            blockedByName: currentUser.name
+            blockedByName: currentUser.name,
           }
         );
-        console.log(`📱 Push notification sent for blocking action to ${userToBlock.name}`);
+        console.log(
+          `📱 Push notification sent for blocking action to ${userToBlock.name}`
+        );
       } catch (error) {
-        console.error('📱 Failed to send blocking push notification:', error);
+        console.error("📱 Failed to send blocking push notification:", error);
       }
     }
 
@@ -340,17 +342,21 @@ router.post("/unblock", authenticateUser, async (req, res) => {
       try {
         await notificationService.sendSystemNotification(
           userId,
-          'User Unblocked',
+          "User Unblocked",
           `You have been unblocked by ${currentUser.name}`,
-          'unblocked',
+          "unblocked",
           {
             unblockedBy: currentUserId,
-            unblockedByName: currentUser.name
+            unblockedByName: currentUser.name,
           }
         );
-        console.log(`📱 Push notification sent for unblocking action to ${userToUnblock?.name || 'user'}`);
+        console.log(
+          `📱 Push notification sent for unblocking action to ${
+            userToUnblock?.name || "user"
+          }`
+        );
       } catch (error) {
-        console.error('📱 Failed to send unblocking push notification:', error);
+        console.error("📱 Failed to send unblocking push notification:", error);
       }
     }
 
