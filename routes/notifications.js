@@ -1,5 +1,6 @@
 const express = require("express");
 const notificationService = require("../services/notificationService");
+const fcmService = require("../services/fcmService");
 const User = require("../models/User");
 
 const router = express.Router();
@@ -216,6 +217,77 @@ router.get("/subscriptions", verifyToken, async (req, res) => {
     });
   } catch (error) {
     console.error("Get user subscriptions error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+});
+
+// Subscribe to FCM notifications (for Android app)
+router.post("/fcm-subscribe", verifyToken, async (req, res) => {
+  try {
+    const { fcmToken, platform = "android" } = req.body;
+
+    if (!fcmToken) {
+      return res.status(400).json({
+        success: false,
+        message: "FCM token is required",
+      });
+    }
+
+    const success = await fcmService.saveFCMToken(
+      req.userId,
+      fcmToken,
+      platform
+    );
+
+    if (success) {
+      res.json({
+        success: true,
+        message: "FCM token saved successfully",
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        message: "Failed to save FCM token",
+      });
+    }
+  } catch (error) {
+    console.error("FCM subscribe error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+});
+
+// Send FCM test notification
+router.post("/fcm-test", verifyToken, async (req, res) => {
+  try {
+    const { title, body, type = "test" } = req.body;
+
+    if (!title || !body) {
+      return res.status(400).json({
+        success: false,
+        message: "Title and body are required",
+      });
+    }
+
+    const result = await fcmService.sendSystemNotification(
+      req.userId,
+      title,
+      body,
+      type
+    );
+
+    res.json({
+      success: true,
+      message: "FCM test notification sent",
+      data: result,
+    });
+  } catch (error) {
+    console.error("FCM test notification error:", error);
     res.status(500).json({
       success: false,
       message: "Internal server error",

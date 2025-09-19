@@ -6,6 +6,7 @@ const Group = require("../models/Group");
 const Story = require("../models/Story");
 const Call = require("../models/Call");
 const notificationService = require("../services/notificationService");
+const fcmService = require("../services/fcmService");
 
 // Store active users
 const activeUsers = new Map();
@@ -228,9 +229,18 @@ const initializeSocket = (io) => {
               };
 
               for (const memberId of offlineMembers) {
+                // Send web push notification
                 await notificationService.sendNotificationToUser(
                   memberId,
                   groupNotificationPayload
+                );
+                
+                // Send FCM notification for Android app
+                await fcmService.sendMessageNotification(
+                  memberId,
+                  `${group.name}: ${socket.user.name}`,
+                  message.content || "New message",
+                  group._id.toString()
                 );
               }
               console.log(
@@ -369,13 +379,23 @@ const initializeSocket = (io) => {
 
             // Send push notification to offline user
             try {
+              // Try web push first
               await notificationService.sendMessageNotification(
                 receiverId,
                 socket.user.name,
                 message.content || "New message",
                 chatRoom._id.toString()
               );
-              console.log(`📱 Push notification sent to ${receiver.name}`);
+              
+              // Also try FCM for Android app
+              await fcmService.sendMessageNotification(
+                receiverId,
+                socket.user.name,
+                message.content || "New message",
+                chatRoom._id.toString()
+              );
+              
+              console.log(`📱 Push notifications sent to ${receiver.name}`);
             } catch (error) {
               console.error("📱 Failed to send push notification:", error);
             }
