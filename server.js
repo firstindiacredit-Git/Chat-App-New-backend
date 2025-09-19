@@ -17,6 +17,7 @@ const searchRoutes = require("./routes/search");
 const friendsRoutes = require("./routes/friends");
 const postsRoutes = require("./routes/posts");
 const { router: storyRoutes, setSocketIO } = require("./routes/stories");
+const notificationRoutes = require("./routes/notifications");
 const { initializeSocket } = require("./socket/socketServer");
 
 const app = express();
@@ -116,6 +117,7 @@ app.use("/api/search", searchRoutes);
 app.use("/api/friends", friendsRoutes);
 app.use("/api/posts", postsRoutes);
 app.use("/api/stories", storyRoutes);
+app.use("/api/notifications", notificationRoutes);
 
 // Health check endpoint
 app.get("/api/health", (req, res) => {

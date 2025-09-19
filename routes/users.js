@@ -3,6 +3,7 @@ const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 const Message = require("../models/Message");
 const ChatRoom = require("../models/ChatRoom");
+const notificationService = require("../services/notificationService");
 
 const router = express.Router();
 
@@ -175,6 +176,23 @@ router.post("/block", authenticateUser, async (req, res) => {
         action: "blocked",
         message: `${userToBlock.name} has been blocked`,
       });
+
+      // Send push notification to blocked user
+      try {
+        await notificationService.sendSystemNotification(
+          userId,
+          'User Blocked',
+          `You have been blocked by ${currentUser.name}`,
+          'blocked',
+          {
+            blockedBy: currentUserId,
+            blockedByName: currentUser.name
+          }
+        );
+        console.log(`📱 Push notification sent for blocking action to ${userToBlock.name}`);
+      } catch (error) {
+        console.error('📱 Failed to send blocking push notification:', error);
+      }
     }
 
     res.json({
@@ -317,6 +335,23 @@ router.post("/unblock", authenticateUser, async (req, res) => {
           userToUnblock ? userToUnblock.name : "User"
         } has been unblocked`,
       });
+
+      // Send push notification to unblocked user
+      try {
+        await notificationService.sendSystemNotification(
+          userId,
+          'User Unblocked',
+          `You have been unblocked by ${currentUser.name}`,
+          'unblocked',
+          {
+            unblockedBy: currentUserId,
+            unblockedByName: currentUser.name
+          }
+        );
+        console.log(`📱 Push notification sent for unblocking action to ${userToUnblock?.name || 'user'}`);
+      } catch (error) {
+        console.error('📱 Failed to send unblocking push notification:', error);
+      }
     }
 
     res.json({
