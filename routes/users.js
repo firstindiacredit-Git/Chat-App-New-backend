@@ -1,6 +1,8 @@
 const express = require("express");
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
+const Message = require("../models/Message");
+const ChatRoom = require("../models/ChatRoom");
 
 const router = express.Router();
 
@@ -97,6 +99,61 @@ router.post("/block", authenticateUser, async (req, res) => {
       await userToBlock.save();
     }
 
+    // Create system message for blocking action
+    try {
+      // Find or create chat room between users
+      let chatRoom = await ChatRoom.findOne({
+        participants: { $all: [currentUserId, userId] },
+        roomType: "private",
+      });
+
+      if (!chatRoom) {
+        chatRoom = new ChatRoom({
+          participants: [currentUserId, userId],
+          roomType: "private",
+        });
+        await chatRoom.save();
+      }
+
+      // Create system message
+      const systemMessage = new Message({
+        sender: currentUserId,
+        receiver: userId,
+        content: `${currentUser.name} blocked ${userToBlock.name}`,
+        messageType: "system",
+        chatRoom: chatRoom._id,
+        isRead: false,
+      });
+
+      await systemMessage.save();
+
+      // Populate sender info
+      await systemMessage.populate("sender", "name email avatar");
+
+      // Update chat room's last message
+      chatRoom.lastMessage = systemMessage._id;
+      chatRoom.lastActivity = new Date();
+      await chatRoom.save();
+
+      console.log(`📨 System message created: ${systemMessage.content}`);
+
+      // Emit system message to both users via socket
+      const io = req.app.get("io");
+      if (io) {
+        // Emit system message to both users
+        io.to(`user_${currentUserId}`).emit("new-message", {
+          message: systemMessage,
+          chatRoomId: chatRoom._id,
+        });
+        io.to(`user_${userId}`).emit("new-message", {
+          message: systemMessage,
+          chatRoomId: chatRoom._id,
+        });
+      }
+    } catch (error) {
+      console.error("Error creating system message for blocking:", error);
+    }
+
     // Emit blocking status update via socket to both users
     const io = req.app.get("io");
     if (io) {
@@ -178,6 +235,63 @@ router.post("/unblock", authenticateUser, async (req, res) => {
         (blockedById) => blockedById.toString() !== currentUserId.toString()
       );
       await userToUnblock.save();
+    }
+
+    // Create system message for unblocking action
+    try {
+      // Find or create chat room between users
+      let chatRoom = await ChatRoom.findOne({
+        participants: { $all: [currentUserId, userId] },
+        roomType: "private",
+      });
+
+      if (!chatRoom) {
+        chatRoom = new ChatRoom({
+          participants: [currentUserId, userId],
+          roomType: "private",
+        });
+        await chatRoom.save();
+      }
+
+      // Create system message
+      const systemMessage = new Message({
+        sender: currentUserId,
+        receiver: userId,
+        content: `${currentUser.name} unblocked ${
+          userToUnblock ? userToUnblock.name : "User"
+        }`,
+        messageType: "system",
+        chatRoom: chatRoom._id,
+        isRead: false,
+      });
+
+      await systemMessage.save();
+
+      // Populate sender info
+      await systemMessage.populate("sender", "name email avatar");
+
+      // Update chat room's last message
+      chatRoom.lastMessage = systemMessage._id;
+      chatRoom.lastActivity = new Date();
+      await chatRoom.save();
+
+      console.log(`📨 System message created: ${systemMessage.content}`);
+
+      // Emit system message to both users via socket
+      const io = req.app.get("io");
+      if (io) {
+        // Emit system message to both users
+        io.to(`user_${currentUserId}`).emit("new-message", {
+          message: systemMessage,
+          chatRoomId: chatRoom._id,
+        });
+        io.to(`user_${userId}`).emit("new-message", {
+          message: systemMessage,
+          chatRoomId: chatRoom._id,
+        });
+      }
+    } catch (error) {
+      console.error("Error creating system message for unblocking:", error);
     }
 
     // Emit unblocking status update via socket to both users
