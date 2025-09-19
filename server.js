@@ -181,6 +181,9 @@ initializeSocket(io);
 // Set Socket.IO instance for story routes
 setSocketIO(io);
 
+// Make io instance available to all routes
+app.set("io", io);
+
 // Start server
 const startServer = async () => {
   try {

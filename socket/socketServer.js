@@ -109,6 +109,34 @@ const initializeSocket = (io) => {
           return;
         }
 
+        // Check blocking status before sending message (only for private messages)
+        if (!isGroupChat) {
+          const sender = await User.findById(socket.userId);
+          const receiver = await User.findById(receiverId);
+
+          if (!receiver) {
+            socket.emit("message-error", {
+              error: "Receiver not found",
+            });
+            return;
+          }
+
+          // Check if sender has blocked receiver OR receiver has blocked sender (mutual blocking)
+          const senderBlockedReceiver =
+            sender.blockedUsers && sender.blockedUsers.includes(receiverId);
+          const receiverBlockedSender =
+            receiver.blockedUsers &&
+            receiver.blockedUsers.includes(socket.userId);
+
+          if (senderBlockedReceiver || receiverBlockedSender) {
+            console.log("🚫 Message blocked - users have blocked each other");
+            socket.emit("message-error", {
+              error: "Cannot send message. User is blocked.",
+            });
+            return;
+          }
+        }
+
         if (isGroupChat) {
           // Handle group message
           const group = await Group.findOne({

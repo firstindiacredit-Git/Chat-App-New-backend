@@ -97,6 +97,29 @@ router.post("/block", authenticateUser, async (req, res) => {
       await userToBlock.save();
     }
 
+    // Emit blocking status update via socket to both users
+    const io = req.app.get("io");
+    if (io) {
+      // Notify the blocked user that they've been blocked
+      io.to(`user_${userId}`).emit("user-blocked", {
+        blockedBy: {
+          _id: currentUserId,
+          name: currentUser.name,
+        },
+        message: "You have been blocked by this user",
+      });
+
+      // Notify the blocker that blocking was successful
+      io.to(`user_${currentUserId}`).emit("user-block-status-updated", {
+        blockedUser: {
+          _id: userId,
+          name: userToBlock.name,
+        },
+        action: "blocked",
+        message: `${userToBlock.name} has been blocked`,
+      });
+    }
+
     res.json({
       success: true,
       message: `${userToBlock.name} has been blocked successfully`,
@@ -155,6 +178,31 @@ router.post("/unblock", authenticateUser, async (req, res) => {
         (blockedById) => blockedById.toString() !== currentUserId.toString()
       );
       await userToUnblock.save();
+    }
+
+    // Emit unblocking status update via socket to both users
+    const io = req.app.get("io");
+    if (io) {
+      // Notify the unblocked user that they've been unblocked
+      io.to(`user_${userId}`).emit("user-unblocked", {
+        unblockedBy: {
+          _id: currentUserId,
+          name: currentUser.name,
+        },
+        message: "You have been unblocked by this user",
+      });
+
+      // Notify the unblocker that unblocking was successful
+      io.to(`user_${currentUserId}`).emit("user-block-status-updated", {
+        unblockedUser: {
+          _id: userId,
+          name: userToUnblock ? userToUnblock.name : "Unknown",
+        },
+        action: "unblocked",
+        message: `${
+          userToUnblock ? userToUnblock.name : "User"
+        } has been unblocked`,
+      });
     }
 
     res.json({
