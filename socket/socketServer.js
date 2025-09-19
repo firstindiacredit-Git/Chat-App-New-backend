@@ -181,6 +181,19 @@ const initializeSocket = (io) => {
             return;
           }
 
+          // Check if users are friends before allowing message
+          const sender = await User.findById(socket.userId);
+          const areFriends =
+            sender.friends && sender.friends.includes(receiverId);
+
+          if (!areFriends) {
+            socket.emit("message-error", {
+              error:
+                "You can only send messages to friends. Send a friend request first.",
+            });
+            return;
+          }
+
           // Create message in database
           const messageData = {
             sender: socket.userId,
@@ -233,9 +246,19 @@ const initializeSocket = (io) => {
               participants: [socket.userId, receiverId],
               lastMessage: message._id,
               lastActivity: new Date(),
+              deletedFor: [], // Initialize empty deletedFor array
             });
             await chatRoom.save();
           } else {
+            // If chat was deleted by either user, restore it for them when new message is sent
+            if (chatRoom.deletedFor && chatRoom.deletedFor.length > 0) {
+              chatRoom.deletedFor = chatRoom.deletedFor.filter(
+                (userId) =>
+                  userId.toString() !== socket.userId &&
+                  userId.toString() !== receiverId
+              );
+            }
+
             chatRoom.lastMessage = message._id;
             chatRoom.lastActivity = new Date();
             await chatRoom.save();

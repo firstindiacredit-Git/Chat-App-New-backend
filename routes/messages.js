@@ -104,9 +104,14 @@ router.get("/chat/:userId", verifyToken, async (req, res) => {
 // Get all chat rooms for current user
 router.get("/chatrooms", verifyToken, async (req, res) => {
   try {
+    // Get current user's friends list
+    const currentUser = await User.findById(req.userId).select("friends");
+    const friendIds = currentUser.friends || [];
+
     const chatRooms = await ChatRoom.find({
       participants: req.userId,
       isActive: true,
+      deletedFor: { $ne: req.userId }, // Exclude chats deleted by current user
     })
       .populate("participants", "name email avatar")
       .populate({
@@ -118,9 +123,22 @@ router.get("/chatrooms", verifyToken, async (req, res) => {
       })
       .sort({ lastActivity: -1 });
 
+    // Filter chat rooms to only include friends
+    const friendChatRooms = chatRooms.filter((room) => {
+      const otherParticipant = room.participants.find(
+        (p) => p._id.toString() !== req.userId
+      );
+      return (
+        otherParticipant &&
+        friendIds.some(
+          (friendId) => friendId.toString() === otherParticipant._id.toString()
+        )
+      );
+    });
+
     // Format chat rooms data and calculate unread counts
     const formattedChatRooms = await Promise.all(
-      chatRooms.map(async (room) => {
+      friendChatRooms.map(async (room) => {
         const otherParticipant = room.participants.find(
           (p) => p._id.toString() !== req.userId
         );
@@ -489,6 +507,79 @@ router.delete("/message/:messageId/reaction", verifyToken, async (req, res) => {
     });
   } catch (error) {
     console.error("Remove reaction error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+});
+
+// Delete chat conversation (one-sided)
+router.delete("/delete-chat/:userId", verifyToken, async (req, res) => {
+  try {
+    const { userId: otherUserId } = req.params;
+    const currentUserId = req.userId;
+
+    // Validate other user exists
+    const otherUser = await User.findById(otherUserId);
+    if (!otherUser) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    // Find the chat room
+    const chatRoom = await ChatRoom.findOne({
+      participants: { $all: [currentUserId, otherUserId] },
+      roomType: "private",
+    });
+
+    if (!chatRoom) {
+      return res.status(404).json({
+        success: false,
+        message: "Chat not found",
+      });
+    }
+
+    // Add current user to deletedFor array (one-sided deletion)
+    if (!chatRoom.deletedFor) {
+      chatRoom.deletedFor = [];
+    }
+
+    // Check if already deleted for this user
+    if (chatRoom.deletedFor.includes(currentUserId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Chat already deleted",
+      });
+    }
+
+    // Add user to deletedFor list
+    chatRoom.deletedFor.push(currentUserId);
+    await chatRoom.save();
+
+    console.log(`🗑️ Chat marked as deleted for user:`, {
+      currentUser: currentUserId,
+      otherUser: otherUserId,
+      chatRoomId: chatRoom._id,
+      deletedForUsers: chatRoom.deletedFor.length,
+    });
+
+    res.json({
+      success: true,
+      message: `Chat with ${otherUser.name} deleted from your side`,
+      data: {
+        chatRoomId: chatRoom._id,
+        deletedFor: currentUserId,
+        deletedWith: {
+          id: otherUserId,
+          name: otherUser.name,
+        },
+      },
+    });
+  } catch (error) {
+    console.error("Delete chat error:", error);
     res.status(500).json({
       success: false,
       message: "Internal server error",

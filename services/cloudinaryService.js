@@ -15,14 +15,30 @@ const uploadImage = async (fileBuffer, folder = "chatapp-avatars") => {
       "base64"
     )}`;
 
+    // Different transformations for different folders
+    let transformation = [];
+    let publicIdPrefix = "avatar";
+
+    if (folder === "posts") {
+      // For posts, keep original aspect ratio but limit size
+      transformation = [
+        { width: 1200, height: 1200, crop: "limit" },
+        { quality: "auto", fetch_format: "auto" },
+      ];
+      publicIdPrefix = "post";
+    } else {
+      // For avatars, crop to square
+      transformation = [
+        { width: 400, height: 400, crop: "fill", gravity: "face" },
+        { quality: "auto", fetch_format: "auto" },
+      ];
+    }
+
     const result = await cloudinary.uploader.upload(base64String, {
       folder: folder,
       resource_type: "auto",
-      transformation: [
-        { width: 400, height: 400, crop: "fill", gravity: "face" },
-        { quality: "auto", fetch_format: "auto" },
-      ],
-      public_id: `avatar_${Date.now()}_${Math.random()
+      transformation: transformation,
+      public_id: `${publicIdPrefix}_${Date.now()}_${Math.random()
         .toString(36)
         .substr(2, 9)}`,
     });

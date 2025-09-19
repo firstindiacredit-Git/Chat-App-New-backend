@@ -173,13 +173,32 @@ router.post(
   }
 );
 
-// Get all active stories for the current user and their contacts
+// Get all active stories for the current user and their friends only
 router.get("/feed", verifyToken, async (req, res) => {
   try {
-    // Get all active stories that haven't expired
+    // First, get the current user with their friends list
+    const currentUser = await User.findById(req.userId).populate(
+      "friends",
+      "_id"
+    );
+
+    if (!currentUser) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    // Get array of friend IDs
+    const friendIds = currentUser.friends
+      ? currentUser.friends.map((friend) => friend._id)
+      : [];
+
+    // Get active stories only from friends (excluding current user's own stories)
     const stories = await Story.find({
       isActive: true,
       expiresAt: { $gt: new Date() },
+      author: { $in: friendIds }, // Only stories from friends
     })
       .populate("author", "name avatar")
       .sort({ createdAt: -1 });
@@ -249,11 +268,78 @@ router.get("/feed", verifyToken, async (req, res) => {
   }
 });
 
-// Get stories for a specific user
+// Get stories for a specific user (only if they are friends or own stories)
 router.get("/user/:userId", verifyToken, async (req, res) => {
   try {
     const { userId } = req.params;
 
+    // If user is requesting their own stories, allow it
+    if (userId === req.userId) {
+      const stories = await Story.find({
+        author: userId,
+        isActive: true,
+        expiresAt: { $gt: new Date() },
+      })
+        .populate("author", "name avatar")
+        .sort({ createdAt: -1 });
+
+      const formattedStories = stories.map((story) => ({
+        id: story._id,
+        content: story.content,
+        media: story.media,
+        mediaType: story.mediaType,
+        backgroundColor: story.backgroundColor,
+        textColor: story.textColor,
+        textSize: story.textSize,
+        viewCount: story.viewCount,
+        hasUserViewed: story.hasUserViewed(req.userId),
+        createdAt: story.createdAt,
+        expiresAt: story.expiresAt,
+      }));
+
+      return res.json({
+        success: true,
+        data: {
+          stories: formattedStories,
+          author:
+            stories.length > 0
+              ? {
+                  id: stories[0].author._id,
+                  name: stories[0].author.name,
+                  avatar: stories[0].author.avatar,
+                }
+              : null,
+        },
+      });
+    }
+
+    // For other users, check if they are friends first
+    const currentUser = await User.findById(req.userId).populate(
+      "friends",
+      "_id"
+    );
+
+    if (!currentUser) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    // Check if the requested user is in current user's friends list
+    const friendIds = currentUser.friends
+      ? currentUser.friends.map((friend) => friend._id.toString())
+      : [];
+    const isFriend = friendIds.includes(userId);
+
+    if (!isFriend) {
+      return res.status(403).json({
+        success: false,
+        message: "You can only view stories from friends",
+      });
+    }
+
+    // User is a friend, proceed to get their stories
     const stories = await Story.find({
       author: userId,
       isActive: true,
