@@ -234,7 +234,7 @@ const initializeSocket = (io) => {
                   memberId,
                   groupNotificationPayload
                 );
-                
+
                 // Send FCM notification for Android app
                 await fcmService.sendMessageNotification(
                   memberId,
@@ -386,7 +386,7 @@ const initializeSocket = (io) => {
                 message.content || "New message",
                 chatRoom._id.toString()
               );
-              
+
               // Also try FCM for Android app
               await fcmService.sendMessageNotification(
                 receiverId,
@@ -394,7 +394,7 @@ const initializeSocket = (io) => {
                 message.content || "New message",
                 chatRoom._id.toString()
               );
-              
+
               console.log(`📱 Push notifications sent to ${receiver.name}`);
             } catch (error) {
               console.error("📱 Failed to send push notification:", error);
