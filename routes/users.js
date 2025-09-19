@@ -256,7 +256,7 @@ router.get("/profile/:userId", authenticateUser, async (req, res) => {
 
     // Get user profile (excluding sensitive data)
     const userProfile = await User.findById(userId).select(
-      "name email phone avatar bio createdAt _id"
+      "name email phone avatar bio createdAt _id blockedUsers"
     );
 
     if (!userProfile) {
@@ -267,7 +267,9 @@ router.get("/profile/:userId", authenticateUser, async (req, res) => {
     }
 
     // Check if current user has blocked this user
-    const currentUser = await User.findById(req.user._id);
+    const currentUser = await User.findById(req.user._id).select(
+      "blockedUsers"
+    );
     const hasBlocked =
       currentUser.blockedUsers && currentUser.blockedUsers.includes(userId);
 
